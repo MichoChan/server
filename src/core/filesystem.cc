@@ -26,7 +26,12 @@
 
 #include "src/core/filesystem.h"
 
+#ifdef _WIN32
+#include <Windows.h>
+#include <io.h>
+#else
 #include <dirent.h>
+#endif
 
 #ifdef TRITON_ENABLE_GCS
 #include <google/cloud/storage/client.h>
@@ -47,6 +52,7 @@
 #include <re2/re2.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <cerrno>
@@ -54,6 +60,11 @@
 #include "src/core/constants.h"
 #include "src/core/logging.h"
 #include "src/core/status.h"
+
+#ifdef _WIN32
+#define stat _stat
+#define access _access
+#endif
 
 namespace nvidia { namespace inferenceserver {
 
@@ -173,12 +184,28 @@ Status
 LocalFileSystem::FileModificationTime(
     const std::string& path, int64_t* mtime_ns)
 {
+// #ifdef _WIN32
+//   HANDLE file = CreateFile(path.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL /* lpSecurityAttributes */, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL /* hTemplateFile */);
+//   if (dir == INVALID_HANDLE_VALUE) {
+//     return Status(Status::Code::INTERNAL, "failed to open file " + path);
+//   }
+//   FILETIME last_write_time;
+//   bool get_file_time = GetFileTime(file, NULL, NULL, &last_write_time);
+//   CloseHandle(file);
+
+//   if (get_file_time) {
+//     *mtime_ns = (static_cast<int64_t>(last_write_time.dwHighDateTime) << 32 | last_write_time.dwLowDateTime);
+//   } else {
+//     return Status(Status::Code::INTERNAL, "failed to obtain modification time of file " + path);
+//   }
+// #else
   struct stat st;
   if (stat(path.c_str(), &st) != 0) {
     return Status(Status::Code::INTERNAL, "failed to stat file " + path);
   }
 
   *mtime_ns = TIMESPEC_TO_NANOS(st.st_mtim);
+// #endif
   return Status::Success;
 }
 
@@ -186,6 +213,23 @@ Status
 LocalFileSystem::GetDirectoryContents(
     const std::string& path, std::set<std::string>* contents)
 {
+#ifdef _WIN32
+  WIN32_FIND_DATA entry;
+  HANDLE dir = FindFirstFile(path.c_str(), &entry);
+  if (dir == INVALID_HANDLE_VALUE) {
+    return Status(Status::Code::INTERNAL, "failed to open directory " + path);
+  }
+  if ((entry->cFileName != ".") && (entry->cFileName != "..")) {
+    contents->insert(entry->cFileName);
+  }
+  while (FindNextFileA(dir, &entry) {
+    if ((entry->cFileName != ".") && (entry->cFileName != "..")) {
+      contents->insert(entry->cFileName);
+    }
+  }
+
+  FindClose(dir);
+#else
   DIR* dir = opendir(path.c_str());
   if (dir == nullptr) {
     return Status(Status::Code::INTERNAL, "failed to open directory " + path);
@@ -200,7 +244,7 @@ LocalFileSystem::GetDirectoryContents(
   }
 
   closedir(dir);
-
+#endif
   return Status::Success;
 }
 
