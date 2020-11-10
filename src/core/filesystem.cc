@@ -27,6 +27,8 @@
 #include "src/core/filesystem.h"
 
 #ifdef _WIN32
+// suppress the min and max definitions in Windef.h.
+#define NOMINMAX
 #include <Windows.h>
 #include <io.h>
 #else
